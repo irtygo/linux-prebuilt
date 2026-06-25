@@ -1,0 +1,62 @@
+name: Build
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Delete GitHub release associated with the tag
+      run: |
+        # Delete the remote tag if it exists
+        if git ls-remote --tags origin | grep -q "refs/tags/latest"; then
+        git push origin --delete latest  # Delete tag remotely
+        fi
+
+        # Find the release ID associated with the 'latest' tag
+        RELEASE_ID=$(gh release list --repo ${{ github.repository }} | grep latest | awk '{print $1}')
+    
+        # Check if the release ID is valid and delete it
+        if [ -n "$RELEASE_ID" ]; then
+          gh release delete $RELEASE_ID --repo ${{ github.repository }} --yes  # Delete the release
+        else
+          echo "No release found with the 'latest' tag."
+        fi
+
+    - name: Get Deps
+      run: |
+        sudo apt-get install git fakeroot build-essential \
+        ncurses-dev xz-utils libssl-dev bc flex libelf-dev bison
+
+    - name: Make config
+      run:  |
+            make x86_64_defconfig
+            scripts/config --enable CONFIG_VIRTIO
+            scripts/config --enable CONFIG_VIRTIO_GPU
+            scripts/config --enable CONFIG_I915
+
+    - name: Create it
+      run: make -j$(nproc)
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4.6.1
+      with:
+        name: kernel
+        path: arch/x86/boot/bzImage
+    
+    - name: Upload to Releases
+      uses: softprops/action-gh-release@v1
+      with: 
+        files: "arch/x86/boot/bzImage"
+        tag_name: latest
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+        
